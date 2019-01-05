@@ -16,6 +16,7 @@ import (
 	brokeriface "github.com/RichardKnop/machinery/v1/brokers/iface"
 	redisbroker "github.com/RichardKnop/machinery/v1/brokers/redis"
 	sqsbroker "github.com/RichardKnop/machinery/v1/brokers/sqs"
+	cmqbroker "github.com/RichardKnop/machinery/v1/brokers/cmq"
 
 	amqpbackend "github.com/RichardKnop/machinery/v1/backends/amqp"
 	dynamobackend "github.com/RichardKnop/machinery/v1/backends/dynamodb"
@@ -86,6 +87,28 @@ func BrokerFactory(cnf *config.Config) (brokeriface.Broker, error) {
 			return nil, err
 		}
 		return gcppubsubbroker.New(cnf, projectID, subscriptionName)
+	}
+
+	if strings.HasPrefix(cnf.Broker, "cmq://") {
+		parts := strings.Split(cnf.Broker, "cmq://")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf(
+				"CMQ broker connection string should be in format cmq://secret_id:secret_key@region?net=?, instead got %s",
+				cnf.Broker,
+			)
+		}
+
+		secretId, secretKey, region, netEnv, err := ParseCMQURL(cnf.Broker)
+		if err != nil {
+			return nil, err
+		}
+		endpoint := ""
+		if netEnv == "wan" {
+			endpoint = fmt.Sprintf("https://cmq-queue-%s.api.qcloud.com", region)
+		} else if netEnv == "lan" {
+			endpoint = fmt.Sprintf("http://cmq-queue-%s.api.tencentyun.com", region)
+		}
+		return cmqbroker.New(cnf, endpoint, secretId, secretKey), nil
 	}
 
 	return nil, fmt.Errorf("Factory failed with broker URL: %v", cnf.Broker)
@@ -259,4 +282,42 @@ func ParseGCPPubSubURL(url string) (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("gcppubsub scheme should be in format gcppubsub://YOUR_GCP_PROJECT_ID/YOUR_PUBSUB_SUBSCRIPTION_NAME, instead got %s", url)
+}
+
+// Parse cmq url
+func ParseCMQURL(url string) (secretId, secretKey, region, domain string, err error) {
+	// format cmq://secret_id:secret_key@region?net=xx
+	var u *neturl.URL
+
+	u, err = neturl.Parse(url)
+	if err != nil {
+		return
+	}
+
+	if u.Scheme != "cmq" {
+		err = errors.New("not cmq scheme found, url is: " + url)
+		return
+	}
+
+	if u.User != nil {
+		secretId = u.User.Username()
+		var exists bool
+		secretKey, exists = u.User.Password()
+		if !exists {
+			err = errors.New("not cmq secretKey found, url is: " + url)
+			return
+		}
+		region = u.Host
+	} else {
+		err = errors.New("ParseCMQURL User is nil, url: " + url)
+		return
+	}
+
+	netEnv := u.Query().Get("net")
+	if netEnv != "wan" && netEnv != "lan" {
+		err = errors.New("cmq net must be [wan|lan], use [lan] if service is running under tencent cloud server")
+		return
+	}
+
+	return
 }

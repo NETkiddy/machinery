@@ -10,6 +10,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/NETkiddy/cmq-go"
 )
 
 const (
@@ -60,6 +61,7 @@ type Config struct {
 	SQS             *SQSConfig       `yaml:"sqs"`
 	Redis           *RedisConfig     `yaml:"redis"`
 	GCPPubSub       *GCPPubSubConfig `yaml:"-" ignored:"true"`
+	CMQ             *CMQConfig       `yaml:"cmq"`
 	TLSConfig       *tls.Config
 	// NoUnixSignals - when set disables signal handling in machinery
 	NoUnixSignals bool            `yaml:"no_unix_signals" envconfig:"NO_UNIX_SIGNALS"`
@@ -129,6 +131,12 @@ type RedisConfig struct {
 // GCPPubSubConfig wraps GCP PubSub related configuration
 type GCPPubSubConfig struct {
 	Client *pubsub.Client
+}
+
+// CMQConfig wraps CMQ related configuration
+type CMQConfig struct {
+	Client          *cmq_go.Account
+	WaitTimeSeconds int `yaml:"receive_wait_time_seconds" envconfig:"SQS_WAIT_TIME_SECONDS"`
 }
 
 // Decode from yaml to map (any field whose type or pointer-to-type implements
